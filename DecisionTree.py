@@ -1,5 +1,3 @@
-from sklearn.datasets import load_iris
-from sklearn.model_selection import train_test_split
 import numpy as np
 from collections import Counter
 
@@ -20,10 +18,10 @@ class Node:
 
 
 class DecisionTree:
-    def __init__(self, max_depth=100):
-        self.min_samplessplitter = 2
+    def __init__(self, min_samplessplitter=2, max_depth=100, n_features=None):
+        self.min_samplessplitter = min_samplessplitter
         self.max_depth = max_depth
-        self.n_features = None
+        self.n_features = n_features
         self.root = None
 
     def fit(self, X, y):
@@ -123,23 +121,3 @@ class DecisionTree:
         if x[node.feature] <= node.threshold:
             return self.traverseDecisionTree(x, node.left)
         return self.traverseDecisionTree(x, node.right)
-
-
-data = load_iris()
-X, y = data.data, data.target
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-clf = DecisionTree(max_depth=2)
-clf.fit(X_train, y_train)
-predictions = clf.predict(X_test)
-
-
-def accuracy(y_test, y_pred):
-    return np.sum(y_test == y_pred) / len(y_test)
-
-
-acc = accuracy(y_test, predictions)
-print(acc)
