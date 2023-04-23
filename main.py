@@ -1,9 +1,9 @@
 from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
 import numpy as np
-from collections import Counter
 
 
+# Define the node class
 class Node:
     def __init__(self, feature=None, threshold=None, left=None, right=None, value=None):
         self.feature = feature
@@ -12,63 +12,95 @@ class Node:
         self.right = right
         self.value = value
 
-    def isLeaf(self):
-        if self.value == None:
-            return False
-        else:
-            return True
 
-
+# Define Decision Tree class
 class DecisionTree:
-    def __init__(self, max_depth=100):
-        self.min_samplessplitter = 2
+    # Define initial inputs
+    def __init__(self, max_depth=100, min_splits=20):
+        self.minSplits = min_splits
         self.max_depth = max_depth
-        self.n_features = None
-        self.root = None
 
+    # Define the fit function
     def fit(self, X, y):
-        if self.n_features == None:
-            self.n_features = X.shape[1]
-        else:
-            self.n_features = min(X.shape[1], self.n_features)
-        self.root = self.growTree(X, y)
+        self.n_features = X.shape[1]
+        self.root = self.grow(X, y)
 
-    def growTree(self, X, y, depth=0):
-        n_samples, n_feats = X.shape
-        n_labels = len(np.unique(y))
+    # Define the stopping criteria
+    def canStop(self, depth, X):
+        samples = X.shape[0]
+        labels = len(np.unique(y))
+        return depth >= self.max_depth or labels == 1 or samples < self.minSplits
 
-        # check the stopping criteria
-        if (
-            depth >= self.max_depth
-            or n_labels == 1
-            or n_samples < self.min_samplessplitter
-        ):
-            leaf_value = self.labelCounter(y)
-            return Node(value=leaf_value)
+    # Define the best split function
+    def selectRandomFeatures(self, X):
+        feats = X.shape[1]
+        feature_indices = np.random.permutation(feats)[: self.n_features]
+        return feature_indices
 
-        feat_idxs = np.random.choice(n_feats, self.n_features, replace=False)
+    # Define the grow function
+    def grow(self, X, y, depth=0):
+        if self.canStop(depth, X):
+            unique, counts = np.unique(y, return_counts=True)
+            most_common_idx = np.argmax(counts)
+            val = unique[most_common_idx]
+            return Node(value=val)
 
+        featureIdx = self.selectRandomFeatures(X)
         # find the best split
-        best_feature, best_thresh = self.bestSplit(X, y, feat_idxs)
+        bestFeature, best_thresh = self.bestSplit(X, y, featureIdx)
 
         # create child nodes
-        left_idxs, right_idxs = self.splitter(X[:, best_feature], best_thresh)
-        left = self.growTree(X[left_idxs, :], y[left_idxs], depth + 1)
-        right = self.growTree(X[right_idxs, :], y[right_idxs], depth + 1)
-        return Node(best_feature, best_thresh, left, right)
+        leftIdx = np.argwhere(X[:, bestFeature] <= best_thresh).flatten()
+        rightIdx = np.argwhere(X[:, bestFeature] > best_thresh).flatten()
+        left = self.grow(X[leftIdx, :], y[leftIdx], depth + 1)
+        right = self.grow(X[rightIdx, :], y[rightIdx], depth + 1)
+        return Node(bestFeature, best_thresh, left, right)
 
-    def bestSplit(self, X, y, feat_idxs):
+    def CalculateEntropy(self, y):
+        hist = np.bincount(y)
+        ps = hist / len(y)
+        entropy = []
+        for x in ps:
+            if x > 0:
+                entropy.append(x * np.log(x))
+        return -np.sum(entropy)
+
+    def getThreshold(self, X, feat_idx):
+        # Get the unique values of the feature
+        unique_values = np.sort(np.unique(X[:, feat_idx]))
+
+        # Compute midpoints between adjacent unique values as thresholds
+        thresholds = (unique_values[:-1] + unique_values[1:]) / 2
+
+        return thresholds
+
+    def bestSplit(self, X, y, featureIdx):
         best_gain = -1
-        split_idx, split_threshold = None, None
+        split_idx = -1
+        split_threshold = -1
 
-        for feat_idx in feat_idxs:
-            X_column = X[:, feat_idx]
-            thresholds = np.unique(X_column)
+        for feat_idx in featureIdx:
+            thresholds = self.getThreshold(X, feat_idx)
 
             for thr in thresholds:
                 # calculate the information gain
-                gain = self.infoGain(y, X_column, thr)
+                # parent entropy
+                parent_entropy = self.CalculateEntropy(y)
 
+                # create children
+                leftIdx = np.argwhere(X[:, feat_idx] <= thr).flatten()
+                rightIdx = np.argwhere(X[:, feat_idx] > thr).flatten()
+
+                # calculate the weighted avg. entropy of children
+                n = len(y)
+                nLeft = len(leftIdx)
+                nRight = len(rightIdx)
+                entropyLeft = self.CalculateEntropy(y[leftIdx])
+                entropyRight = self.CalculateEntropy(y[rightIdx])
+                child_entropy = (nLeft / n) * entropyLeft + (nRight / n) * entropyRight
+
+                # calculate the Information Gain
+                gain = parent_entropy - child_entropy
                 if gain > best_gain:
                     best_gain = gain
                     split_idx = feat_idx
@@ -76,53 +108,21 @@ class DecisionTree:
 
         return split_idx, split_threshold
 
-    def infoGain(self, y, X_column, threshold):
-        # parent entropy
-        parent_entropy = self.CalculateEntropy(y)
-
-        # create children
-        left_idxs, right_idxs = self.splitter(X_column, threshold)
-
-        if len(left_idxs) == 0 or len(right_idxs) == 0:
-            return 0
-
-        # calculate the weighted avg. entropy of children
-        n = len(y)
-        n_l, n_r = len(left_idxs), len(right_idxs)
-        e_l, e_r = self.CalculateEntropy(y[left_idxs]), self.CalculateEntropy(
-            y[right_idxs]
-        )
-        child_entropy = (n_l / n) * e_l + (n_r / n) * e_r
-
-        # calculate the IG
-        information_gain = parent_entropy - child_entropy
-        return information_gain
-
-    def splitter(self, X_column, split_thresh):
-        left_idxs = np.argwhere(X_column <= split_thresh).flatten()
-        right_idxs = np.argwhere(X_column > split_thresh).flatten()
-        return left_idxs, right_idxs
-
-    def CalculateEntropy(self, y):
-        hist = np.bincount(y)
-        ps = hist / len(y)
-        return -np.sum([p * np.log(p) for p in ps if p > 0])
-
-    def labelCounter(self, y):
-        counter = Counter(y)
-        value = counter.most_common(1)[0][0]
-        return value
-
     def predict(self, X):
-        return np.array([self.traverseDecisionTree(x, self.root) for x in X])
+        predictions = [self.moveInTree(x, self.root) for x in X]
+        return np.array(predictions)
 
-    def traverseDecisionTree(self, x, node):
-        if node.isLeaf():
+    def moveInTree(self, x, node):
+        if node.value != None:
             return node.value
 
-        if x[node.feature] <= node.threshold:
-            return self.traverseDecisionTree(x, node.left)
-        return self.traverseDecisionTree(x, node.right)
+        if x[node.feature] > node.threshold:
+            return self.moveInTree(x, node.right)
+        return self.moveInTree(x, node.left)
+
+    def calculateAccuracy(self, Y_test, Y_pred):
+        accuracy = np.sum(Y_test == Y_pred) / len(Y_test)
+        return accuracy
 
 
 data = load_iris()
@@ -132,14 +132,10 @@ X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-clf = DecisionTree(max_depth=2)
+clf = DecisionTree(max_depth=2, min_splits=20)
 clf.fit(X_train, y_train)
 predictions = clf.predict(X_test)
 
 
-def accuracy(y_test, y_pred):
-    return np.sum(y_test == y_pred) / len(y_test)
-
-
-acc = accuracy(y_test, predictions)
+acc = clf.calculateAccuracy(y_test, predictions)
 print(acc)
